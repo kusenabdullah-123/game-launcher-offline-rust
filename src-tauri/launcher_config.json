@@ -1,0 +1,12 @@
+{
+  "proton_root": "/home/kusena/Games/Proton",
+  "games": [
+    {
+      "id": 1771905846637,
+      "name": "Tainted Grail",
+      "proton_path": "/home/kusena/Games/Proton/Proton-CachyOS Latest/proton",
+      "exe_path": "/home/kusena/Games/Tainted Grail/Tainted Grail.exe",
+      "prefix_path": "/home/kusena/Games/Manual_Prefix/Tainted Grail"
+    }
+  ]
+}
