@@ -1,10 +1,12 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use serde::{Serialize, Deserialize};
 use std::fs;
 use std::path::PathBuf;
 use std::collections::HashMap;
 use std::process::{Command, Child};
 use std::sync::{Arc, Mutex};
-use tauri::State;
+use tauri::{State, Emitter};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ProtonVersion {
@@ -19,6 +21,7 @@ pub struct Game {
     proton_path: String,
     exe_path: String,
     prefix_path: String,
+    use_ace: bool, 
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -73,32 +76,62 @@ fn load_config() -> Result<AppConfig, String> {
 }
 
 #[tauri::command]
-fn run_game(game: Game, state: State<AppState>) -> Result<String, String> {
-    let child = Command::new(&game.proton_path)
-        .arg("run")
-        .arg(&game.exe_path)
-        .env("STEAM_COMPAT_DATA_PATH", &game.prefix_path)
-        .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", "/tmp")
-        .spawn()
-        .map_err(|e| e.to_string())?;
+fn run_game(game: Game, state: State<AppState>, app_handle: tauri::AppHandle) -> Result<String, String> {
+    let mut cmd = Command::new(&game.proton_path);
+    cmd.arg("run")
+       .arg(&game.exe_path)
+       .env("STEAM_COMPAT_DATA_PATH", &game.prefix_path)
+       .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", "/tmp");
 
-    state.procs.lock().unwrap().insert(game.name.clone(), child);
-    Ok(format!("{} is running", game.name))
+    if game.use_ace {
+        cmd.env("WINEDLLOVERRIDES", "lsteamclient=d;winedbg=")
+           .env("PROTON_NO_ESYNC", "1")
+           .env("PROTON_USE_FSYNC", "1");
+    } else {
+        cmd.env("PROTON_NO_ESYNC", "0")
+           .env("PROTON_USE_FSYNC", "1");
+    }
+
+    let child = cmd.spawn().map_err(|e| e.to_string())?;
+    let game_name = game.name.clone();
+    let procs_clone = Arc::clone(&state.procs);
+    
+    procs_clone.lock().unwrap().insert(game_name.clone(), child);
+
+    std::thread::spawn(move || {
+        loop {
+            let mut procs = procs_clone.lock().unwrap();
+            if let Some(child_proc) = procs.get_mut(&game_name) {
+                match child_proc.try_wait() {
+                    Ok(Some(_)) => {
+                        procs.remove(&game_name);
+                        let _ = app_handle.emit("game-status", (game_name, "READY"));
+                        break;
+                    }
+                    Ok(None) => (),
+                    Err(_) => break,
+                }
+            } else { break; }
+            drop(procs);
+            std::thread::sleep(std::time::Duration::from_secs(2));
+        }
+    });
+
+    Ok(format!("Started {}", game.name))
 }
 
 #[tauri::command]
-fn kill_game(name: String, state: State<AppState>) -> Result<String, String> {
+fn kill_game(name: String, state: State<AppState>) -> Result<(), String> {
     let mut procs = state.procs.lock().unwrap();
     if let Some(mut child) = procs.remove(&name) {
         let _ = child.kill();
-        return Ok(format!("Stopped {}", name));
     }
-    Err("Game not running".to_string())
+    Ok(())
 }
 
 #[tauri::command]
 fn run_winetricks(prefix_path: String) -> Result<String, String> {
-    let _status = Command::new("konsole")
+    Command::new("konsole")
         .arg("--noclose")
         .arg("-e")
         .arg("sh")
@@ -106,8 +139,7 @@ fn run_winetricks(prefix_path: String) -> Result<String, String> {
         .arg(format!("WINEPREFIX=\"{}\" winetricks", prefix_path))
         .spawn()
         .map_err(|e| e.to_string())?;
-
-    Ok("Winetricks UI opened via Konsole".into())
+    Ok("Opened Winetricks".into())
 }
 
 fn main() {
