@@ -27,12 +27,22 @@ pub struct Game {
     #[serde(default)] use_ace: bool,
     #[serde(default)] use_ntsync: bool,
     #[serde(default)] use_antilag: bool,
+    #[serde(default)] pub custom_env: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AppConfig {
     pub proton_root: String,
     pub games: Vec<Game>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SystemHealth {
+    pub umu_ok:      bool,
+    pub gamemode_ok: bool,
+    pub ntsync_ok:   bool,
+    pub vulkan_ok:   bool,
+    pub umu_version: String,
 }
 
 struct AppState {
@@ -160,7 +170,18 @@ fn run_game(
            .env("PROTON_NO_ESYNC", "1");
     }
 
-    // 8. Eksekusi
+    // 8. Custom Env Variables (Overwrites dari user)
+    // Format yang diharapkan: "KEY=VALUE\nKEY2=VALUE2"
+    for line in game.custom_env.lines() {
+        let line = line.trim();
+        if !line.is_empty() && !line.starts_with('#') {
+            if let Some((k, v)) = line.split_once('=') {
+                cmd.env(k.trim(), v.trim());
+            }
+        }
+    }
+
+    // 9. Eksekusi
     let child = cmd.spawn().map_err(|e| format!("Gagal spawn process: {}", e))?;
 
     // 9. Simpan PID untuk tombol STOP
@@ -222,6 +243,45 @@ fn run_winetricks(prefix_path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn check_system_health() -> SystemHealth {
+    // Helper closure: cek apakah command tersedia di PATH
+    let cmd_ok = |name: &str| -> bool {
+        Command::new("sh")
+            .args(["-c", &format!("command -v {}", name)])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    };
+
+    // Versi umu-run (ambil dari --version flag)
+    let umu_version = Command::new("umu-run")
+        .arg("--version")
+        .output()
+        .map(|o| {
+            // Output biasanya: "umu-launcher version X.Y.Z ..."
+            let raw = String::from_utf8_lossy(&o.stdout).to_string();
+            // Ambil baris pertama saja, potong setelah newline
+            raw.lines().next().unwrap_or("unknown").trim().to_string()
+        })
+        .unwrap_or_else(|_| "not found".to_string());
+
+    // Vulkan: cek via vulkaninfo (lebih reliable dari file)
+    let vulkan_ok = Command::new("vulkaninfo")
+        .arg("--summary")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    SystemHealth {
+        umu_ok:      cmd_ok("umu-run"),
+        gamemode_ok: cmd_ok("gamemoderun"),
+        ntsync_ok:   std::path::Path::new("/dev/ntsync").exists(),
+        vulkan_ok,
+        umu_version,
+    }
+}
+
+#[tauri::command]
 fn save_config(config: AppConfig) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
     fs::write(config_path(), json).map_err(|e| e.to_string())
@@ -244,7 +304,8 @@ fn main() {
             scan_manual_proton,
             save_config,
             load_config,
-            run_winetricks
+            run_winetricks,
+            check_system_health,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

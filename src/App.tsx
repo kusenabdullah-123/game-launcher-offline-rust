@@ -7,8 +7,49 @@ import { open } from '@tauri-apps/plugin-dialog';
 // Default state form
 const EMPTY_FORM = {
   name: '', proton_path: '', exe_path: '', prefix_path: '',
-  use_ace: false, use_ntsync: true, use_antilag: true,
+  use_ace: false, use_ntsync: true, use_antilag: true, custom_env: '',
 };
+
+// ─── Sub Components ──────────────────────────────────────────────────────────
+
+// Dot indicator: hijau = ok, merah = error, abu = loading
+const Dot = ({ ok, label }: { ok?: boolean; label: string }) => (
+  <div style={{
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
+  }}>
+    <div style={{
+      width: '8px', height: '8px', borderRadius: '50%',
+      background: ok === undefined ? '#334155' : ok ? '#10b981' : '#ef4444',
+      boxShadow: ok ? '0 0 6px #10b981aa' : ok === false ? '0 0 6px #ef4444aa' : 'none',
+      transition: 'background 0.3s, box-shadow 0.3s',
+    }} />
+    <span style={{ fontSize: '0.45rem', color: '#475569', fontWeight: '700', letterSpacing: '0.5px' }}>
+      {label}
+    </span>
+  </div>
+);
+
+// Baris detail di health panel
+const HealthRow = ({ label, ok, detail }: { label: string; ok?: boolean; detail: string }) => (
+  <div style={{
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    padding: '8px 0', borderBottom: '1px solid #1e293b',
+  }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{
+        width: '7px', height: '7px', borderRadius: '50%', flexShrink: 0,
+        background: ok === undefined ? '#334155' : ok ? '#10b981' : '#ef4444',
+      }} />
+      <span style={{ fontSize: '0.75rem', color: '#cbd5e1', fontWeight: '600' }}>{label}</span>
+    </div>
+    <span style={{
+      fontSize: '0.65rem', color: ok ? '#64748b' : '#7f1d1d',
+      maxWidth: '180px', textAlign: 'right', wordBreak: 'break-all',
+    }}>
+      {detail}
+    </span>
+  </div>
+);
 
 export default function App() {
   const [games, setGames] = useState<any[]>([]);
@@ -21,6 +62,12 @@ export default function App() {
   const [gameStates, setGameStates] = useState<Record<string, string>>({});
   const [useGameMode, setUseGameMode] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [showHealth, setShowHealth] = useState(false);
+  const [health, setHealth] = useState<{
+    umu_ok: boolean; gamemode_ok: boolean;
+    ntsync_ok: boolean; vulkan_ok: boolean;
+    umu_version: string;
+  } | null>(null);
   
   // Form State
   const [form, setForm] = useState({ ...EMPTY_FORM });
@@ -33,13 +80,19 @@ export default function App() {
       setProtonRoot(config.proton_root || '');
       setGames(config.games || []);
       
-      // Jika root sudah ada, langsung scan proton
+      // Scan proton jika root sudah tersimpan
       if (config.proton_root) {
         try {
           const list: any = await invoke('scan_manual_proton', { basePath: config.proton_root });
           setProtonList(list);
         } catch (e) { console.error(e); }
       }
+
+      // Health check saat startup (non-blocking)
+      try {
+        const h: any = await invoke('check_system_health');
+        setHealth(h);
+      } catch (e) { console.error('Health check failed:', e); }
     })();
 
     // Listener: Menerima sinyal dari Rust saat game mati sendiri
@@ -75,6 +128,7 @@ export default function App() {
       name: game.name, proton_path: game.proton_path,
       exe_path: game.exe_path, prefix_path: game.prefix_path,
       use_ace: game.use_ace, use_ntsync: game.use_ntsync, use_antilag: game.use_antilag,
+      custom_env: game.custom_env || '',
     });
     setMsg(`Editing ${game.name}`);
   };
@@ -130,23 +184,78 @@ export default function App() {
         button:hover { filter: brightness(1.1); transform: translateY(-1px); }
         button:active { transform: translateY(0); }
         select { appearance: none; -webkit-appearance: none; }
+        @keyframes fadeIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
       `}</style>
 
-      {/* Header */}
       <header style={S.header}>
         <div style={S.brand}>
           <div style={S.logo} />
           <h1 style={S.brandText}>CORE<span style={{color:'#60a5fa'}}>RUNNER</span></h1>
         </div>
         <div style={S.headerRight}>
+
+          {/* ── Health Dots ── */}
+          <div
+            onClick={() => setShowHealth(v => !v)}
+            style={S.healthDots}
+            title="System Health — klik untuk detail"
+          >
+            <Dot ok={health?.umu_ok}      label="UMU" />
+            <Dot ok={health?.gamemode_ok} label="GM"  />
+            <Dot ok={health?.ntsync_ok}   label="NTS" />
+            <Dot ok={health?.vulkan_ok}   label="VLK" />
+          </div>
+
+          {/* ── GameMode Toggle ── */}
           <div onClick={() => setUseGameMode(v => !v)} style={{...S.toggle, borderColor: useGameMode ? '#3b82f6' : '#334155'}}>
             <span style={{color: useGameMode ? '#60a5fa' : '#475569'}}>⚡ GAMEMODE {useGameMode ? 'ON' : 'OFF'}</span>
           </div>
+
+          {/* ── Status Badge ── */}
           <div style={{...S.statusBadge, color: statusOk ? '#10b981' : '#ef4444', borderColor: statusOk ? '#052e16' : '#450a0a'}}>
             {status}
           </div>
         </div>
       </header>
+
+      {/* ── Health Panel Dropdown ── */}
+      {showHealth && (
+        <div style={S.healthPanel}>
+          <div style={S.healthTitle}>🩺 SYSTEM HEALTH</div>
+
+          <HealthRow
+            label="umu-launcher"
+            ok={health?.umu_ok}
+            detail={health?.umu_version || 'not found'}
+          />
+          <HealthRow
+            label="GameMode"
+            ok={health?.gamemode_ok}
+            detail={health?.gamemode_ok ? 'gamemoderun ready' : 'not installed'}
+          />
+          <HealthRow
+            label="NTSync"
+            ok={health?.ntsync_ok}
+            detail={health?.ntsync_ok ? '/dev/ntsync active' : 'kernel module not loaded'}
+          />
+          <HealthRow
+            label="Vulkan / GPU"
+            ok={health?.vulkan_ok}
+            detail={health?.vulkan_ok ? 'vulkaninfo OK' : 'vulkaninfo not found'}
+          />
+
+          <button
+            onClick={async () => {
+              setHealth(null);
+              const h: any = await invoke('check_system_health');
+              setHealth(h);
+            }}
+            style={S.healthRefresh}
+          >
+            ↻ Refresh
+          </button>
+        </div>
+      )}
 
       <div style={S.layout}>
         {/* Sidebar */}
@@ -219,6 +328,14 @@ export default function App() {
               </label>
             </div>
 
+            <textarea 
+              placeholder="Custom Env (satu per baris)\nWINEDLLOVERRIDES=vcruntime140=n,b" 
+              value={form.custom_env} 
+              onInput={e => setForm({...form, custom_env: e.currentTarget.value})} 
+              style={{...S.input, minHeight:'60px', resize:'vertical', fontSize:'0.75rem', fontFamily:'monospace'}}
+              title="Gunakan untuk force load DLL c++ jika game bermasalah, misal: WINEDLLOVERRIDES=vcruntime140=n,b"
+            />
+
             <div style={{marginTop:'auto', display:'flex', gap:'8px'}}>
               <button onClick={saveOrUpdate} style={{...S.btnPri, flex:2}}>{editingId ? 'UPDATE' : 'SAVE GAME'}</button>
               {editingId && <button onClick={cancelEdit} style={{...S.btnSec, flex:1}}>CANCEL</button>}
@@ -290,7 +407,7 @@ export default function App() {
 // ─── Styles ──────────────────────────────────────────────────────────────────
 const S: any = {
   container: { height:'100vh', width:'100vw', display:'flex', flexDirection:'column' },
-  header: { height:'64px', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0 24px', background:'rgba(15, 23, 42, 0.95)', borderBottom:'1px solid #1e293b' },
+  header: { height:'64px', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0 24px', background:'rgba(15, 23, 42, 0.95)', borderBottom:'1px solid #1e293b', position:'relative' },
   brand: { display:'flex', alignItems:'center', gap:'12px' },
   logo: { width:'14px', height:'24px', background:'#3b82f6', borderRadius:'3px', boxShadow:'0 0 15px #3b82f6' },
   brandText: { fontSize:'1.25rem', fontWeight:'900', letterSpacing:'1px' },
@@ -318,5 +435,19 @@ const S: any = {
   btnLaunch: { background:'#059669', color:'#fff', padding:'8px 20px', borderRadius:'6px', fontWeight:'700', cursor:'pointer', fontSize:'0.75rem', boxShadow:'0 0 10px rgba(5,150,105,0.2)' },
   btnStop: { background:'#dc2626', color:'#fff', padding:'8px 20px', borderRadius:'6px', fontWeight:'700', cursor:'pointer', fontSize:'0.75rem' },
   btnOpt: { background:'#334155', color:'#fff', padding:'8px 12px', borderRadius:'6px', cursor:'pointer', fontSize:'0.75rem', fontWeight:'600' },
-  btnDel: { background:'transparent', color:'#64748b', fontSize:'1.2rem', cursor:'pointer', padding:'0 8px' },
+  btnDel:         { background:'transparent', color:'#64748b', fontSize:'1.2rem', cursor:'pointer', padding:'0 8px' },
+
+  // ── Health ────────────────────────────────────────────────────────────────
+  healthDots:    { display:'flex', gap:'10px', alignItems:'flex-end', cursor:'pointer',
+                   padding:'6px 12px', border:'1px solid #1e293b', borderRadius:'8px',
+                   background:'rgba(15,23,42,0.8)' },
+  healthPanel:   { position:'absolute', top:'68px', right:'24px', zIndex:999,
+                   background:'#0f172a', border:'1px solid #334155', borderRadius:'14px',
+                   padding:'20px', minWidth:'300px', boxShadow:'0 8px 40px rgba(0,0,0,0.6)',
+                   animation:'fadeIn 0.15s ease' },
+  healthTitle:   { fontSize:'0.6rem', fontWeight:'900', color:'#475569',
+                   letterSpacing:'1.5px', marginBottom:'12px' },
+  healthRefresh: { marginTop:'14px', width:'100%', padding:'8px',
+                   background:'#1e293b', color:'#64748b', borderRadius:'8px',
+                   fontSize:'0.72rem', cursor:'pointer', fontWeight:'600' },
 };
