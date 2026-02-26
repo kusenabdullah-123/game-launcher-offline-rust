@@ -28,6 +28,7 @@ pub struct Game {
     #[serde(default)] use_ntsync: bool,
     #[serde(default)] use_antilag: bool,
     #[serde(default)] pub custom_env: String,
+    #[serde(default)] pub launch_args: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -181,7 +182,14 @@ fn run_game(
         }
     }
 
-    // 9. Eksekusi
+    // 9. Launch Arguments
+    if !game.launch_args.trim().is_empty() {
+        // Pisahkan argumen berdasarkan spasi
+        let args: Vec<&str> = game.launch_args.split_whitespace().collect();
+        cmd.args(args);
+    }
+
+    // 10. Eksekusi
     let child = cmd.spawn().map_err(|e| format!("Gagal spawn process: {}", e))?;
 
     // 9. Simpan PID untuk tombol STOP

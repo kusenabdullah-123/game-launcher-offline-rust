@@ -7,7 +7,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 // Default state form
 const EMPTY_FORM = {
   name: '', proton_path: '', exe_path: '', prefix_path: '',
-  use_ace: false, use_ntsync: true, use_antilag: true, custom_env: '',
+  use_ace: false, use_ntsync: true, use_antilag: true, custom_env: '', launch_args: '',
 };
 
 // ─── Sub Components ──────────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ export default function App() {
       name: game.name, proton_path: game.proton_path,
       exe_path: game.exe_path, prefix_path: game.prefix_path,
       use_ace: game.use_ace, use_ntsync: game.use_ntsync, use_antilag: game.use_antilag,
-      custom_env: game.custom_env || '',
+      custom_env: game.custom_env || '', launch_args: game.launch_args || '',
     });
     setMsg(`Editing ${game.name}`);
   };
@@ -327,6 +327,14 @@ export default function App() {
                 ACE Online Fix
               </label>
             </div>
+
+            <input 
+              placeholder="Launch Args (e.g. -SkipBuildPatchPrereq)" 
+              value={form.launch_args} 
+              onInput={e => setForm({...form, launch_args: e.currentTarget.value})} 
+              style={{...S.input, marginBottom:'8px'}} 
+              title="Argumen untuk di-pass ke EXE, contoh: -windowed atau -SkipBuildPatchPrereq"
+            />
 
             <textarea 
               placeholder="Custom Env (satu per baris)\nWINEDLLOVERRIDES=vcruntime140=n,b" 
