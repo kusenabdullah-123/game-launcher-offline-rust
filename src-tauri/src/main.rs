@@ -251,6 +251,54 @@ fn run_winetricks(prefix_path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn run_exe_in_prefix(
+    game: Game,
+    custom_exe: String,
+    use_gamemode: bool,
+) -> Result<String, String> {
+    let mut cmd = if use_gamemode {
+        let mut c = Command::new("gamemoderun");
+        c.arg("umu-run");
+        c
+    } else {
+        Command::new("umu-run")
+    };
+
+    cmd.arg(&custom_exe);
+
+    let proton_folder = {
+        let p = PathBuf::from(&game.proton_path);
+        if p.is_file() {
+            p.parent().map(|parent| parent.to_string_lossy().into_owned()).unwrap_or_else(|| game.proton_path.clone())
+        } else {
+            game.proton_path.clone()
+        }
+    };
+
+    cmd.env("PROTONPATH",  &proton_folder)
+       .env("WINEPREFIX",  &game.prefix_path)
+       .env("GAMEID",      "umu-default")
+       .env("PROTON_VERB", "run");
+
+    // Tetap apply env default
+    if game.use_ntsync && std::path::Path::new("/dev/ntsync").exists() { cmd.env("PROTON_USE_NTSYNC", "1"); }
+    if game.use_antilag { cmd.env("ENABLE_LAYER_MESA_ANTI_LAG", "1"); }
+    if game.use_ace { cmd.env("WINEDLLOVERRIDES", "lsteamclient=d;winedbg=").env("PROTON_NO_ESYNC", "1"); }
+
+    for line in game.custom_env.lines() {
+        let line = line.trim();
+        if !line.is_empty() && !line.starts_with('#') {
+            if let Some((k, v)) = line.split_once('=') {
+                cmd.env(k.trim(), v.trim());
+            }
+        }
+    }
+
+    cmd.spawn().map_err(|e| format!("Gagal spawn process: {}", e))?;
+    Ok(format!("Started custom EXE"))
+}
+
+#[tauri::command]
 fn check_system_health() -> SystemHealth {
     // Helper closure: cek apakah command tersedia di PATH
     let cmd_ok = |name: &str| -> bool {
@@ -313,6 +361,7 @@ fn main() {
             save_config,
             load_config,
             run_winetricks,
+            run_exe_in_prefix,
             check_system_health,
         ])
         .run(tauri::generate_context!())

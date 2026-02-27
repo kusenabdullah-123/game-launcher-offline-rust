@@ -394,6 +394,19 @@ export default function App() {
                           <button onClick={() => startEdit(g)} style={S.btnOpt}>EDIT</button>
                           <button onClick={() => invoke('run_winetricks', {prefixPath: g.prefix_path})} style={S.btnOpt} title="Config Wine">CFG</button>
                           <button onClick={async () => {
+                            const exe = await open({ filters: [{ name: 'Executable', extensions: ['exe', 'msi', 'bat'] }] });
+                            if(exe) {
+                              const fileName = (exe as string).split(/[\\/]/).pop();
+                              setMsg(`Running ${fileName}...`);
+                              try {
+                                await invoke('run_exe_in_prefix', { game: g, customExe: exe as string, useGamemode: useGameMode });
+                                setMsg(`Started: ${fileName}`);
+                              } catch(e) {
+                                setMsg(`Failed to run exe: ${e}`, false);
+                              }
+                            }
+                          }} style={S.btnOpt} title="Run EXE inside prefix (Installer/DLC/Mods)">EXE</button>
+                          <button onClick={async () => {
                             const updated = games.filter(x => x.id !== g.id);
                             setGames(updated);
                             await invoke('save_config', { config: { proton_root: protonRoot, games: updated } });
