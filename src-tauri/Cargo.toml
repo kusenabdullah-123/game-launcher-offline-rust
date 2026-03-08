@@ -25,7 +25,8 @@ serde_json = "1"
 tauri-plugin-dialog = "2.6.0"
 
 [profile.release]
-panic = "abort" # Mengurangi ukuran binary
-codegen-units = 1 # Optimasi lebih baik
-lto = true # Link Time Optimization
-opt-level = "z" # Optimasi ukuran (size)
+panic = "abort"        # Kurangi binary, bagus untuk app
+codegen-units = 1      # LTO + single unit = optimasi maksimal
+lto = true             # Fat LTO: terbaik untuk binary final
+opt-level = "s"        # Size-opt tapi lebih seimbang dari "z"
+strip = true           # Hapus debug symbols — efek terbesar!
