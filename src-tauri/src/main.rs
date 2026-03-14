@@ -128,6 +128,10 @@ fn run_game(
     // 4. Argumen Utama UMU adalah Game EXE
     cmd.arg(&game.exe_path);
 
+    if let Some(exe_dir) = std::path::Path::new(&game.exe_path).parent() {
+        cmd.current_dir(exe_dir);
+    }
+
     let proton_folder = {
         let p = PathBuf::from(&game.proton_path);
         if p.is_file() {
@@ -265,6 +269,10 @@ fn run_exe_in_prefix(
     };
 
     cmd.arg(&custom_exe);
+
+    if let Some(exe_dir) = std::path::Path::new(&custom_exe).parent() {
+        cmd.current_dir(exe_dir);
+    }
 
     let proton_folder = {
         let p = PathBuf::from(&game.proton_path);
